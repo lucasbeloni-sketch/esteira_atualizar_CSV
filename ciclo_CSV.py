@@ -1,5 +1,6 @@
-# ciclo.py — v3 CSV Drive — 2026-04-30 BRT
+# ciclo_CSV.py — v4 CSV Drive com dados iniciando na coluna D — 2026-04-30 BRT
 # Lê OBRAS GERAL!A1:T, normaliza dados e salva/substitui CICLO.csv no Google Drive.
+# No CSV, cria 3 colunas vazias antes dos dados para simular início na coluna D.
 
 from datetime import datetime
 import os
@@ -19,7 +20,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
-__VERSION__ = "ciclo.py v3 CSV Drive"
+__VERSION__ = "ciclo_CSV.py v4 CSV Drive coluna D"
 
 print(f">>> {__VERSION__} — caminho: {__file__}", flush=True)
 
@@ -43,7 +44,11 @@ CSV_NAME = "CICLO.csv"
 
 SRC_WIDTH = 20
 
-# Para abrir melhor no Excel/Sheets em PT-BR, mantive separador ;
+# Para simular que os dados começam na coluna D do CSV
+# A, B e C ficam vazias; dados entram de D até W.
+CSV_COLUNAS_VAZIAS_ANTES = 3
+
+# Separador compatível com Excel/Sheets em PT-BR
 CSV_DELIMITER = ";"
 CSV_ENCODING = "utf-8-sig"
 
@@ -81,9 +86,11 @@ def _status_from_httperror(e: HttpError) -> Optional[int]:
 
 def gs_retry(fn, *args, desc="", max_tries=MAX_RETRIES, base=BASE_SLEEP, **kw):
     tent = 0
+
     while True:
         try:
             return fn(*args, **kw)
+
         except APIError as e:
             tent += 1
             code = _status_from_apierror(e)
@@ -93,18 +100,22 @@ def gs_retry(fn, *args, desc="", max_tries=MAX_RETRIES, base=BASE_SLEEP, **kw):
                 raise
 
             slp = min(30.0, base * (2 ** (tent - 1)) + random.uniform(0, 0.6))
+
             print(
                 f"[retry] ⚠️ {desc or fn.__name__}: {e} — retry {tent}/{max_tries - 1} em {slp:.1f}s",
                 flush=True,
             )
+
             time.sleep(slp)
 
 
 def api_retry(callable_execute, desc="", max_tries=MAX_RETRIES, base=BASE_SLEEP):
     tent = 0
+
     while True:
         try:
             return callable_execute().execute()
+
         except HttpError as e:
             tent += 1
             code = _status_from_httperror(e)
@@ -114,10 +125,12 @@ def api_retry(callable_execute, desc="", max_tries=MAX_RETRIES, base=BASE_SLEEP)
                 raise
 
             slp = min(30.0, base * (2 ** (tent - 1)) + random.uniform(0, 0.6))
+
             print(
                 f"[retry] ⚠️ {desc}: {e} — retry {tent}/{max_tries - 1} em {slp:.1f}s",
                 flush=True,
             )
+
             time.sleep(slp)
 
 
@@ -194,6 +207,16 @@ def pad_row(row, width=SRC_WIDTH):
     return row
 
 
+def aplicar_offset_coluna_d(row):
+    """
+    Adiciona 3 colunas vazias no início da linha.
+    Assim, quando abrir o CSV em planilha:
+    A, B e C ficam vazias;
+    os dados começam na coluna D.
+    """
+    return [""] * CSV_COLUNAS_VAZIAS_ANTES + pad_row(row)
+
+
 def gerar_csv_bytes(hdr, linhas):
     output = io.StringIO(newline="")
 
@@ -204,10 +227,12 @@ def gerar_csv_bytes(hdr, linhas):
         quoting=csv.QUOTE_MINIMAL,
     )
 
-    writer.writerow(pad_row(hdr))
+    # Cabeçalho começando na coluna D
+    writer.writerow(aplicar_offset_coluna_d(hdr))
 
+    # Dados começando na coluna D
     for linha in linhas:
-        writer.writerow(pad_row(linha))
+        writer.writerow(aplicar_offset_coluna_d(linha))
 
     return output.getvalue().encode(CSV_ENCODING)
 
@@ -268,6 +293,7 @@ def salvar_ou_substituir_csv_drive(drive_service, folder_id, file_name, csv_byte
             f"✅ Arquivo substituído: {atualizado.get('name')} | ID: {atualizado.get('id')}",
             flush=True,
         )
+
         return atualizado
 
     criado = api_retry(
@@ -288,6 +314,7 @@ def salvar_ou_substituir_csv_drive(drive_service, folder_id, file_name, csv_byte
         f"✅ Arquivo criado: {criado.get('name')} | ID: {criado.get('id')}",
         flush=True,
     )
+
     return criado
 
 
@@ -329,8 +356,13 @@ linhas = tratar_linhas(linhas)
 # =========================
 csv_bytes = gerar_csv_bytes(hdr, linhas)
 
+total_linhas_csv = len(linhas) + 1
+
 print(
-    f"📄 CSV gerado em memória: {CSV_NAME} | Linhas: {len(linhas) + (1 if hdr else 0)} | Atualizado em {agora_str()}",
+    f"📄 CSV gerado em memória: {CSV_NAME} | "
+    f"Linhas: {total_linhas_csv} | "
+    f"Dados iniciando na coluna D | "
+    f"Atualizado em {agora_str()}",
     flush=True,
 )
 
