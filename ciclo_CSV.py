@@ -1,6 +1,10 @@
-# ciclo_CSV.py — v4 CSV Drive com dados iniciando na coluna D — 2026-04-30 BRT
+# ciclo_CSV.py — v5 CSV Drive com cabeçalhos B/C — 2026-04-30 BRT
 # Lê OBRAS GERAL!A1:T, normaliza dados e salva/substitui CICLO.csv no Google Drive.
-# No CSV, cria 3 colunas vazias antes dos dados para simular início na coluna D.
+# No CSV:
+# A = vazio
+# B = Unidade tratada
+# C = Tipo
+# D até W = dados da origem
 
 from datetime import datetime
 import os
@@ -20,7 +24,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
-__VERSION__ = "ciclo_CSV.py v4 CSV Drive coluna D"
+__VERSION__ = "ciclo_CSV.py v5 CSV Drive cabeçalhos B/C"
 
 print(f">>> {__VERSION__} — caminho: {__file__}", flush=True)
 
@@ -44,9 +48,9 @@ CSV_NAME = "CICLO.csv"
 
 SRC_WIDTH = 20
 
-# Para simular que os dados começam na coluna D do CSV
-# A, B e C ficam vazias; dados entram de D até W.
-CSV_COLUNAS_VAZIAS_ANTES = 3
+# A fica vazio, B e C recebem cabeçalho, dados começam em D
+CSV_PREFIX_HEADER = ["", "Unidade tratada", "Tipo"]
+CSV_PREFIX_DADOS = ["", "", ""]
 
 # Separador compatível com Excel/Sheets em PT-BR
 CSV_DELIMITER = ";"
@@ -207,16 +211,6 @@ def pad_row(row, width=SRC_WIDTH):
     return row
 
 
-def aplicar_offset_coluna_d(row):
-    """
-    Adiciona 3 colunas vazias no início da linha.
-    Assim, quando abrir o CSV em planilha:
-    A, B e C ficam vazias;
-    os dados começam na coluna D.
-    """
-    return [""] * CSV_COLUNAS_VAZIAS_ANTES + pad_row(row)
-
-
 def gerar_csv_bytes(hdr, linhas):
     output = io.StringIO(newline="")
 
@@ -227,12 +221,14 @@ def gerar_csv_bytes(hdr, linhas):
         quoting=csv.QUOTE_MINIMAL,
     )
 
-    # Cabeçalho começando na coluna D
-    writer.writerow(aplicar_offset_coluna_d(hdr))
+    # Cabeçalho:
+    # A vazio | B Unidade tratada | C Tipo | D:W cabeçalho da origem
+    writer.writerow(CSV_PREFIX_HEADER + pad_row(hdr))
 
-    # Dados começando na coluna D
+    # Dados:
+    # A:C vazios | D:W dados da origem
     for linha in linhas:
-        writer.writerow(aplicar_offset_coluna_d(linha))
+        writer.writerow(CSV_PREFIX_DADOS + pad_row(linha))
 
     return output.getvalue().encode(CSV_ENCODING)
 
@@ -341,7 +337,7 @@ dados = gs_retry(
 if not dados:
     hdr = []
     linhas = []
-    print("⚠️ Origem sem dados. Será gerado um CSV vazio.", flush=True)
+    print("⚠️ Origem sem dados. Será gerado um CSV somente com cabeçalho.", flush=True)
 else:
     hdr = dados[0]
     linhas = dados[1:]
@@ -361,6 +357,8 @@ total_linhas_csv = len(linhas) + 1
 print(
     f"📄 CSV gerado em memória: {CSV_NAME} | "
     f"Linhas: {total_linhas_csv} | "
+    f"Coluna B: Unidade tratada | "
+    f"Coluna C: Tipo | "
     f"Dados iniciando na coluna D | "
     f"Atualizado em {agora_str()}",
     flush=True,
