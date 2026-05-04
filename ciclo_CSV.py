@@ -1,8 +1,10 @@
-# ciclo_CSV.py — v7 CSV Drive com Tipo pela coluna H — 2026-04-30 BRT
+# ciclo_CSV.py — v8 CSV Drive com Unidade tratada via BD_Config — 2026-04-30 BRT
 # Lê OBRAS GERAL!A1:T, normaliza dados e salva/substitui CICLO.csv no Google Drive.
+# Também lê BD_Config!A:B para preencher a coluna B do CSV.
+#
 # No CSV:
 # A = vazio
-# B = Unidade tratada
+# B = Unidade tratada => PROCX(D:D; BD_Config!A:A; BD_Config!B:B; "-")
 # C = Tipo => Fora carteira [valor da coluna H]
 # D até W = dados da origem
 
@@ -24,7 +26,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
-__VERSION__ = "ciclo_CSV.py v7 CSV Drive Tipo pela coluna H"
+__VERSION__ = "ciclo_CSV.py v8 CSV Drive com BD_Config"
 
 print(f">>> {__VERSION__} — caminho: {__file__}", flush=True)
 
@@ -43,6 +45,11 @@ ID_ORIGEM = "19xV_P6KIoZB9U03yMcdRb2oF_Q7gVdaukjAvE4xOvl8"
 ABA_ORIGEM = "OBRAS GERAL"
 INTERVALO_ORIGEM = "A1:T"  # 20 colunas
 
+# Planilha onde está a aba BD_Config
+ID_CONFIG = "1gDktQhF0WIjfAX76J2yxQqEeeBsSfMUPGs5svbf9xGM"
+ABA_CONFIG = "BD_Config"
+INTERVALO_CONFIG = "A:B"
+
 DRIVE_FOLDER_ID = "1weGikVXLxPdNeDNT0gLfjYViYXy6YHIV"
 CSV_NAME = "CICLO.csv"
 
@@ -55,9 +62,13 @@ SRC_WIDTH = 20
 # D:W = dados da origem
 CSV_PREFIX_HEADER = ["", "Unidade tratada", "Tipo"]
 
-# A coluna H do CSV final corresponde à coluna E da origem,
-# pois os dados da origem começam na coluna D:
-# D=origem A, E=origem B, F=origem C, G=origem D, H=origem E
+# Como os dados da origem começam na coluna D do CSV:
+# D = origem A
+# E = origem B
+# F = origem C
+# G = origem D
+# H = origem E
+IDX_ORIGEM_PARA_COLUNA_D_CSV = 0
 IDX_ORIGEM_PARA_COLUNA_H_CSV = 4
 
 # Separador compatível com Excel/Sheets em PT-BR
@@ -169,6 +180,21 @@ def make_creds():
     )
 
 
+def normalizar_chave(valor):
+    if valor is None:
+        return ""
+
+    s = str(valor).strip()
+
+    if s.endswith(".0"):
+        try:
+            return str(int(float(s)))
+        except Exception:
+            return s
+
+    return s
+
+
 def normalizar_data(txt):
     if not txt:
         return ""
@@ -219,13 +245,55 @@ def pad_row(row, width=SRC_WIDTH):
     return row
 
 
-def obter_valor_coluna_h_csv(linha_origem):
+def montar_mapa_bd_config(linhas_config):
+    """
+    Simula o comportamento do PROCX:
+    - procura na coluna A da BD_Config
+    - retorna a coluna B da BD_Config
+    - se não encontrar, retorna "-"
+    - se houver chave repetida, mantém a primeira ocorrência
+    """
+    mapa = {}
+
+    for linha in linhas_config:
+        if not linha:
+            continue
+
+        chave = normalizar_chave(linha[0]) if len(linha) >= 1 else ""
+        valor = linha[1] if len(linha) >= 2 else ""
+
+        if chave and chave not in mapa:
+            mapa[chave] = valor
+
+    return mapa
+
+
+def obter_valor_coluna_d_csv(linha_origem):
     """
     Como no CSV final os dados da origem começam na coluna D:
     D = origem A
-    E = origem B
-    F = origem C
-    G = origem D
+
+    Portanto, para preencher a coluna B com base na coluna D do CSV,
+    usamos o índice 0 da linha de origem.
+    """
+    if IDX_ORIGEM_PARA_COLUNA_D_CSV < len(linha_origem):
+        return normalizar_chave(linha_origem[IDX_ORIGEM_PARA_COLUNA_D_CSV])
+
+    return ""
+
+
+def gerar_unidade_tratada(linha_origem, mapa_config):
+    valor_d = obter_valor_coluna_d_csv(linha_origem)
+
+    if not valor_d:
+        return ""
+
+    return mapa_config.get(valor_d, "-")
+
+
+def obter_valor_coluna_h_csv(linha_origem):
+    """
+    Como no CSV final os dados da origem começam na coluna D:
     H = origem E
 
     Portanto, para preencher a coluna C com base na coluna H do CSV,
@@ -246,7 +314,7 @@ def gerar_tipo(linha_origem):
     return ""
 
 
-def gerar_csv_bytes(hdr, linhas):
+def gerar_csv_bytes(hdr, linhas, mapa_config):
     output = io.StringIO(newline="")
 
     writer = csv.writer(
@@ -261,13 +329,14 @@ def gerar_csv_bytes(hdr, linhas):
     writer.writerow(CSV_PREFIX_HEADER + pad_row(hdr))
 
     # Dados:
-    # A vazio | B vazio | C calculada pela coluna H | D:W dados da origem
+    # A vazio | B calculado pelo BD_Config | C calculada pela coluna H | D:W dados da origem
     for linha in linhas:
+        unidade_tratada = gerar_unidade_tratada(linha, mapa_config)
         tipo = gerar_tipo(linha)
 
         prefixo_dados = [
             "",
-            "",
+            unidade_tratada,
             tipo,
         ]
 
@@ -386,6 +455,25 @@ else:
     linhas = dados[1:]
 
 # =========================
+# LEITURA BD_CONFIG
+# =========================
+b_config = gs_retry(gc.open_by_key, ID_CONFIG, desc="open config")
+w_config = gs_retry(b_config.worksheet, ABA_CONFIG, desc="ws BD_Config")
+
+dados_config = gs_retry(
+    w_config.get,
+    INTERVALO_CONFIG,
+    desc=f"get {ABA_CONFIG}!{INTERVALO_CONFIG}",
+)
+
+mapa_config = montar_mapa_bd_config(dados_config)
+
+print(
+    f"🔎 BD_Config carregada: {len(mapa_config)} chaves encontradas para preenchimento da coluna B.",
+    flush=True,
+)
+
+# =========================
 # NORMALIZAÇÕES
 # =========================
 linhas = tratar_linhas(linhas)
@@ -393,13 +481,14 @@ linhas = tratar_linhas(linhas)
 # =========================
 # GERAR CSV
 # =========================
-csv_bytes = gerar_csv_bytes(hdr, linhas)
+csv_bytes = gerar_csv_bytes(hdr, linhas, mapa_config)
 
 total_linhas_csv = len(linhas) + 1
 
 print(
     f"📄 CSV gerado em memória: {CSV_NAME} | "
     f"Linhas: {total_linhas_csv} | "
+    f"Coluna B via BD_Config | "
     f"Coluna C calculada por: Fora carteira [Coluna H] | "
     f"Dados iniciando na coluna D | "
     f"Atualizado em {agora_str()}",
