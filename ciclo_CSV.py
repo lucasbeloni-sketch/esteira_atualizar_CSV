@@ -1,4 +1,4 @@
-# ciclo_CSV.py — v8 CSV Drive com Unidade tratada via BD_Config — 2026-04-30 BRT
+# ciclo_CSV.py — v9 CSV Drive com DATA FATURAMENTO corrigida — 2026-04-30 BRT
 # Lê OBRAS GERAL!A1:T, normaliza dados e salva/substitui CICLO.csv no Google Drive.
 # Também lê BD_Config!A:B para preencher a coluna B do CSV.
 #
@@ -7,6 +7,10 @@
 # B = Unidade tratada => PROCX(D:D; BD_Config!A:A; BD_Config!B:B; "-")
 # C = Tipo => Fora carteira [valor da coluna H]
 # D até W = dados da origem
+#
+# Ajuste importante:
+# A coluna O do CSV = coluna L da origem.
+# Coluna L da origem agora é tratada como DATA FATURAMENTO, não como número.
 
 from datetime import datetime
 import os
@@ -26,7 +30,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
-__VERSION__ = "ciclo_CSV.py v8 CSV Drive com BD_Config"
+__VERSION__ = "ciclo_CSV.py v9 CSV Drive DATA FATURAMENTO corrigida"
 
 print(f">>> {__VERSION__} — caminho: {__file__}", flush=True)
 
@@ -201,13 +205,21 @@ def normalizar_data(txt):
 
     s = str(txt).strip().lstrip("'").strip()
 
+    # Trata datas zeradas do Google Sheets/Excel como vazio
+    if s in ("30/12/1899", "31/12/1899", "00/01/1900"):
+        return ""
+
+    # Formato 2026-03-12 -> 12/03/2026
     m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
     if m:
-        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+        data = f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+        return "" if data in ("30/12/1899", "31/12/1899", "00/01/1900") else data
 
+    # Formato 12/03/2026
     if re.match(r"^\d{2}/\d{2}/\d{4}$", s):
         return s
 
+    # Formato 12/03/26 -> 12/03/2026
     m = re.match(r"^(\d{2})/(\d{2})/(\d{2})$", s)
     if m:
         return f"{m.group(1)}/{m.group(2)}/20{m.group(3)}"
@@ -218,8 +230,13 @@ def normalizar_data(txt):
 def tratar_linhas(linhas):
     for r in linhas:
         # Colunas numéricas na origem:
-        # índice 10 = K, índice 11 = L, índice 15 = P
-        for idx in (10, 11, 15):
+        # índice 10 = K
+        # índice 15 = P
+        #
+        # IMPORTANTE:
+        # Removido o índice 11 daqui, pois índice 11 = coluna L da origem.
+        # A coluna L da origem vira a coluna O no CSV e representa DATA FATURAMENTO.
+        for idx in (10, 15):
             if idx < len(r):
                 bruto = str(r[idx]).replace("R$", "").replace(".", "").replace(",", ".")
                 bruto = re.sub(r"[^\d.\-]", "", bruto)
@@ -230,8 +247,11 @@ def tratar_linhas(linhas):
                     r[idx] = ""
 
         # Colunas de data na origem:
-        # índice 9 = J, índice 12 = M, índice 14 = O
-        for idx in (9, 12, 14):
+        # índice 9  = J
+        # índice 11 = L -> DATA FATURAMENTO, coluna O no CSV
+        # índice 12 = M
+        # índice 14 = O
+        for idx in (9, 11, 12, 14):
             if idx < len(r):
                 r[idx] = normalizar_data(r[idx])
 
@@ -490,6 +510,7 @@ print(
     f"Linhas: {total_linhas_csv} | "
     f"Coluna B via BD_Config | "
     f"Coluna C calculada por: Fora carteira [Coluna H] | "
+    f"DATA FATURAMENTO corrigida na coluna O | "
     f"Dados iniciando na coluna D | "
     f"Atualizado em {agora_str()}",
     flush=True,
