@@ -1,9 +1,9 @@
-# ciclo_CSV.py — v6 CSV Drive com Unidade tratada pela coluna H — 2026-04-30 BRT
+# ciclo_CSV.py — v7 CSV Drive com Tipo pela coluna H — 2026-04-30 BRT
 # Lê OBRAS GERAL!A1:T, normaliza dados e salva/substitui CICLO.csv no Google Drive.
 # No CSV:
 # A = vazio
-# B = Unidade tratada => Fora carteira [valor da coluna H]
-# C = Tipo
+# B = Unidade tratada
+# C = Tipo => Fora carteira [valor da coluna H]
 # D até W = dados da origem
 
 from datetime import datetime
@@ -24,7 +24,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
-__VERSION__ = "ciclo_CSV.py v6 CSV Drive Unidade tratada pela coluna H"
+__VERSION__ = "ciclo_CSV.py v7 CSV Drive Tipo pela coluna H"
 
 print(f">>> {__VERSION__} — caminho: {__file__}", flush=True)
 
@@ -228,7 +228,7 @@ def obter_valor_coluna_h_csv(linha_origem):
     G = origem D
     H = origem E
 
-    Portanto, para preencher a coluna B com base na coluna H do CSV,
+    Portanto, para preencher a coluna C com base na coluna H do CSV,
     usamos o índice 4 da linha de origem.
     """
     if IDX_ORIGEM_PARA_COLUNA_H_CSV < len(linha_origem):
@@ -237,7 +237,7 @@ def obter_valor_coluna_h_csv(linha_origem):
     return ""
 
 
-def gerar_unidade_tratada(linha_origem):
+def gerar_tipo(linha_origem):
     valor_h = obter_valor_coluna_h_csv(linha_origem)
 
     if valor_h:
@@ -261,14 +261,14 @@ def gerar_csv_bytes(hdr, linhas):
     writer.writerow(CSV_PREFIX_HEADER + pad_row(hdr))
 
     # Dados:
-    # A vazio | B calculada pela coluna H | C vazio | D:W dados da origem
+    # A vazio | B vazio | C calculada pela coluna H | D:W dados da origem
     for linha in linhas:
-        unidade_tratada = gerar_unidade_tratada(linha)
+        tipo = gerar_tipo(linha)
 
         prefixo_dados = [
             "",
-            unidade_tratada,
             "",
+            tipo,
         ]
 
         writer.writerow(prefixo_dados + pad_row(linha))
@@ -400,7 +400,7 @@ total_linhas_csv = len(linhas) + 1
 print(
     f"📄 CSV gerado em memória: {CSV_NAME} | "
     f"Linhas: {total_linhas_csv} | "
-    f"Coluna B calculada por: Fora carteira [Coluna H] | "
+    f"Coluna C calculada por: Fora carteira [Coluna H] | "
     f"Dados iniciando na coluna D | "
     f"Atualizado em {agora_str()}",
     flush=True,
