@@ -1,8 +1,8 @@
-# ciclo_CSV.py — v5 CSV Drive com cabeçalhos B/C — 2026-04-30 BRT
+# ciclo_CSV.py — v6 CSV Drive com Unidade tratada pela coluna H — 2026-04-30 BRT
 # Lê OBRAS GERAL!A1:T, normaliza dados e salva/substitui CICLO.csv no Google Drive.
 # No CSV:
 # A = vazio
-# B = Unidade tratada
+# B = Unidade tratada => Fora carteira [valor da coluna H]
 # C = Tipo
 # D até W = dados da origem
 
@@ -24,7 +24,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
-__VERSION__ = "ciclo_CSV.py v5 CSV Drive cabeçalhos B/C"
+__VERSION__ = "ciclo_CSV.py v6 CSV Drive Unidade tratada pela coluna H"
 
 print(f">>> {__VERSION__} — caminho: {__file__}", flush=True)
 
@@ -48,9 +48,17 @@ CSV_NAME = "CICLO.csv"
 
 SRC_WIDTH = 20
 
-# A fica vazio, B e C recebem cabeçalho, dados começam em D
+# No CSV final:
+# A = vazio
+# B = Unidade tratada
+# C = Tipo
+# D:W = dados da origem
 CSV_PREFIX_HEADER = ["", "Unidade tratada", "Tipo"]
-CSV_PREFIX_DADOS = ["", "", ""]
+
+# A coluna H do CSV final corresponde à coluna E da origem,
+# pois os dados da origem começam na coluna D:
+# D=origem A, E=origem B, F=origem C, G=origem D, H=origem E
+IDX_ORIGEM_PARA_COLUNA_H_CSV = 4
 
 # Separador compatível com Excel/Sheets em PT-BR
 CSV_DELIMITER = ";"
@@ -211,6 +219,33 @@ def pad_row(row, width=SRC_WIDTH):
     return row
 
 
+def obter_valor_coluna_h_csv(linha_origem):
+    """
+    Como no CSV final os dados da origem começam na coluna D:
+    D = origem A
+    E = origem B
+    F = origem C
+    G = origem D
+    H = origem E
+
+    Portanto, para preencher a coluna B com base na coluna H do CSV,
+    usamos o índice 4 da linha de origem.
+    """
+    if IDX_ORIGEM_PARA_COLUNA_H_CSV < len(linha_origem):
+        return str(linha_origem[IDX_ORIGEM_PARA_COLUNA_H_CSV]).strip()
+
+    return ""
+
+
+def gerar_unidade_tratada(linha_origem):
+    valor_h = obter_valor_coluna_h_csv(linha_origem)
+
+    if valor_h:
+        return f"Fora carteira [{valor_h}]"
+
+    return ""
+
+
 def gerar_csv_bytes(hdr, linhas):
     output = io.StringIO(newline="")
 
@@ -226,9 +261,17 @@ def gerar_csv_bytes(hdr, linhas):
     writer.writerow(CSV_PREFIX_HEADER + pad_row(hdr))
 
     # Dados:
-    # A:C vazios | D:W dados da origem
+    # A vazio | B calculada pela coluna H | C vazio | D:W dados da origem
     for linha in linhas:
-        writer.writerow(CSV_PREFIX_DADOS + pad_row(linha))
+        unidade_tratada = gerar_unidade_tratada(linha)
+
+        prefixo_dados = [
+            "",
+            unidade_tratada,
+            "",
+        ]
+
+        writer.writerow(prefixo_dados + pad_row(linha))
 
     return output.getvalue().encode(CSV_ENCODING)
 
@@ -337,7 +380,7 @@ dados = gs_retry(
 if not dados:
     hdr = []
     linhas = []
-    print("⚠️ Origem sem dados. Será gerado um CSV somente com cabeçalho.", flush=True)
+    print("⚠️ Origem sem dados. Será gerado CSV somente com cabeçalho.", flush=True)
 else:
     hdr = dados[0]
     linhas = dados[1:]
@@ -357,8 +400,7 @@ total_linhas_csv = len(linhas) + 1
 print(
     f"📄 CSV gerado em memória: {CSV_NAME} | "
     f"Linhas: {total_linhas_csv} | "
-    f"Coluna B: Unidade tratada | "
-    f"Coluna C: Tipo | "
+    f"Coluna B calculada por: Fora carteira [Coluna H] | "
     f"Dados iniciando na coluna D | "
     f"Atualizado em {agora_str()}",
     flush=True,
