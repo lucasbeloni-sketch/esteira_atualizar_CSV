@@ -1,14 +1,9 @@
 # lv_CSV.py — gera/substitui LV CICLO.csv no Google Drive
 # Mantém o mesmo tratamento de dados do lv.py original.
 #
-# Origem:
-#   Planilha: 19xV_P6KIoZB9U03yMcdRb2oF_Q7gVdaukjAvE4xOvl8
-#   Aba: LV GERAL
-#   Intervalo: A:Y
-#
-# Destino:
-#   Google Drive pasta: 1weGikVXLxPdNeDNT0gLfjYViYXy6YHIV
-#   Arquivo: LV CICLO.csv
+# Ajuste:
+# Colunas F, K, T, V e W são geradas com vírgula decimal no CSV.
+# Exemplo: 1926.25 -> 1926,25
 
 import os
 import re
@@ -30,7 +25,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
-__VERSION__ = "lv_CSV.py v1 CSV Drive"
+__VERSION__ = "lv_CSV.py v2 CSV Drive com números PT-BR"
 
 print(f">>> {__VERSION__} — caminho: {__file__}", flush=True)
 
@@ -45,7 +40,7 @@ except Exception:
 # ====== CONFIGURAÇÕES ======
 ID_ORIGEM = "19xV_P6KIoZB9U03yMcdRb2oF_Q7gVdaukjAvE4xOvl8"
 ABA_ORIGEM = "LV GERAL"
-RANGE_ORIGEM = "A:Y"  # 25 colunas, inclui cabeçalho
+RANGE_ORIGEM = "A:Y"
 
 DRIVE_FOLDER_ID = "1weGikVXLxPdNeDNT0gLfjYViYXy6YHIV"
 CSV_NAME = "LV CICLO.csv"
@@ -86,18 +81,16 @@ def _status_from_httperror(e: HttpError) -> Optional[int]:
         return None
 
 
-# ====== CREDENCIAIS FLEXÍVEIS ======
+# ====== CREDENCIAIS ======
 def make_creds():
     env_json = os.environ.get("GOOGLE_CREDENTIALS")
 
     if env_json:
-        # Aceita GOOGLE_CREDENTIALS como JSON puro
         try:
             return SACreds.from_service_account_info(json.loads(env_json), scopes=SCOPES)
         except Exception:
             pass
 
-        # Aceita GOOGLE_CREDENTIALS como Base64 do JSON
         try:
             decoded = base64.b64decode(env_json).decode("utf-8")
             return SACreds.from_service_account_info(json.loads(decoded), scopes=SCOPES)
@@ -259,6 +252,44 @@ def salvar_ou_substituir_csv_drive(drive_service, folder_id, file_name, csv_byte
     return criado
 
 
+# ====== TRATAMENTO DE NÚMEROS ======
+def formatar_numero_ptbr(valor):
+    """
+    Converte valores numéricos para padrão PT-BR no CSV.
+    Exemplo:
+    1926.25 -> 1926,25
+    1926.0  -> 1926,00
+    """
+    if valor is None:
+        return ""
+
+    if pd.isna(valor):
+        return ""
+
+    s = str(valor).strip()
+
+    if s == "":
+        return ""
+
+    try:
+        num = float(s)
+        return f"{num:.2f}".replace(".", ",")
+    except Exception:
+        return s.replace(".", ",")
+
+
+def aplicar_formato_numerico_ptbr(df, num_cols):
+    """
+    Aplica vírgula decimal nas colunas numéricas antes de gerar o CSV.
+    Mantém o cabeçalho intacto.
+    """
+    for c in num_cols:
+        if c < df.shape[1]:
+            df.iloc[1:, c] = df.iloc[1:, c].apply(formatar_numero_ptbr)
+
+    return df
+
+
 # ====== CSV ======
 def gerar_csv_bytes(df):
     output = io.StringIO(newline="")
@@ -303,7 +334,6 @@ except WorksheetNotFound:
 log(f"📥 Lendo dados da origem ({ABA_ORIGEM}!{RANGE_ORIGEM})…")
 dados = with_retry(ws_src.get, RANGE_ORIGEM, desc=f"get {ABA_ORIGEM}!{RANGE_ORIGEM}")
 
-# Força DF como object, igual ao código original
 df = pd.DataFrame(dados, dtype=object)
 df = df.astype(object)
 
@@ -317,14 +347,14 @@ if df.shape[1] < 25:
     for _ in range(add):
         df[df.shape[1]] = ""
 
-# Se vier com mais de 25 colunas por algum motivo, limita em A:Y
+# Limita em A:Y se vier com mais colunas
 if df.shape[1] > 25:
     log(f"✂️ Limitando colunas para A:Y. Colunas atuais: {df.shape[1]}")
     df = df.iloc[:, :25]
 
 df = df.astype(object)
 
-# ====== TRATAMENTOS IGUAIS AO CÓDIGO ORIGINAL ======
+# ====== TRATAMENTOS ======
 log("🧽 Tratando colunas numéricas e data…")
 
 # Colunas numéricas:
@@ -370,9 +400,13 @@ if date_col < df.shape[1]:
 # Troca NaN/NaT por vazio
 df = df.where(pd.notnull(df), "")
 
+# Aplica formato PT-BR nas colunas F, K, T, V e W
+df = aplicar_formato_numerico_ptbr(df, num_cols)
+
 n_rows, n_cols = df.shape
 
 log(f"📏 Tamanho final do CSV: {n_rows} linhas × {n_cols} colunas")
+log("🔢 Colunas F, K, T, V e W formatadas com vírgula decimal.")
 
 # ====== GERAR CSV EM MEMÓRIA ======
 log(f"📄 Gerando CSV em memória: {CSV_NAME}")
