@@ -1,0 +1,45 @@
+name: Atualizar OPERACAO CSV
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: operacao-csv
+  cancel-in-progress: false
+
+jobs:
+  atualizar-operacao-csv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+
+      - name: Listar arquivos do repositório
+        run: |
+          echo "Pasta atual:"
+          pwd
+          echo "Arquivos na raiz:"
+          ls -la
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas gspread google-auth google-api-python-client
+
+      - name: Gerar credenciais.json a partir do Secret Base64
+        shell: bash
+        run: |
+          printf "%s" "${{ secrets.GOOGLE_CREDENTIALS }}" | base64 --decode > credenciais.json
+
+      - name: Executar operacao_CSV.py
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python -u ./operacao_CSV.py
